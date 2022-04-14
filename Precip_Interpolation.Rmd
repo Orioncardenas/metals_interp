@@ -14,6 +14,9 @@ library(lubridate)
 library(osmdata)
 library(gstat)
 library(elevatr)
+library(dplyr)
+library(USAboundaries)
+library(stars)
 
 
 knitr::opts_chunk$set(echo = TRUE)
@@ -48,7 +51,7 @@ monthly_p <- daily_p %>%
   mutate(month = month(date)) %>%
   group_by(month, station) %>%
   summarize(monthly_p = sum(daily_p)) %>%
-  left_join(unique_asos) #grab elevation data
+  left_join(unique_asos,.) #grab elevation data
   
 
 ```
@@ -69,11 +72,8 @@ ggplot(monthly_p, aes(x = elevation, y = monthly_p, color = month)) +
 monthly_t <- daily_p %>%
   mutate(month = month(date)) %>%
   group_by(month, station) %>%
-  select(-lon,-lat) %>%
   summarize(across(where(is.numeric), mean)) %>%
-  left_join(unique_asos)
-
-
+  left_join(unique_asos,.)
 ```
 
 
@@ -86,30 +86,47 @@ ggplot(monthly_t, aes(y = mean_temp, x = elevation, color = month)) +
   scale_color_viridis_c()
 ```
 
-
-
 ## Pick a month (summer months are safer)
 
 
 ```{r}
-
+june_p = monthly_t %>%
+  filter(month == 6)
 ```
 
 ### Build IDW precip or elevation for state for that month
 
 ```{r}
+june_p_tr <- st_transform(june_p,crs=2163) %>% # Project data
+  mutate(x=st_coordinates(.)[,1],
+         y=st_coordinates(.)[,2])
 
+states = us_states() # State shapefiles
+
+co = states %>%
+  filter(state_abbr == "CO") # Filter state shapefiles for Colorado
+
+co <- st_transform(co,crs=2163)
+
+mapview(co) + mapview(june_p_tr)
+
+co_stars = st_bbox(co) %>%
+  st_as_stars(dx = 10000) %>%
+  st_crop(co)
+
+interp = idw(daily_p~1,june_p_tr,co_stars)
 ```
 
 ### Plot this data
 
 ```{r}
-
+mapview(interp,na.col=NA,col.regions=mapviewGetOption('vector.palette')) + 
+  mapview(june_p_tr, zcol = 'daily_p')
 ```
 
 ### Build IDW with elevation for state for that month including elevation as a predictor
 
-Hint! Use `get_elev_raster` 
+Hint! Use `get_elev_raster` . Use z of 7 or 8
 
 ```{r}
 
@@ -132,8 +149,6 @@ How close do our simple approaches come to reproducing prism maps?
 
 
 https://www.prism.oregonstate.edu/recent/monthly.php
-
-
 
 
 ```{r}
